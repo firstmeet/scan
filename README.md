@@ -3,6 +3,8 @@
 ### 使用方法
 ```go
 	    import "github.com/firstmeet/scan"
+	    
+	    func Example(){
 	    ipList := []string{"127.0.0.1", "192.168.1.1"}
             portList := []int{22, 23, 3306}
             rev := make(chan scan.Result, 100)
@@ -14,3 +16,5 @@
             }()
             s.Start()
             s.Wait()
+	    }
+	    
