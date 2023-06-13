@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/firstmeet/scan/utils"
@@ -23,19 +22,18 @@ type Scan struct {
 	IpList        []string
 	PortList      []int
 	ThreadNum     int
-	Fd            int
 	Timeout       time.Duration
 	ListenStatus  bool
 	hanPermission bool
 	seq           int
 	laddr         string
 	Result        chan Result
-	Finish        chan struct{}
+	finish        chan struct{}
 	maxCh         chan struct{}
 	closeListen   chan struct{}
 	aliveIP       []string
 	ReturnNumber  int
-	StartScan     chan struct{}
+	start         chan struct{}
 	Total         int
 	Lock          sync.Mutex
 }
@@ -51,11 +49,11 @@ func NewScan(IpList []string, PortList []int, ThreadNum int, Timeout time.Durati
 		PortList:      PortList,
 		ThreadNum:     ThreadNum,
 		Timeout:       Timeout,
-		StartScan:     make(chan struct{}, 1),
+		start:         make(chan struct{}, 1),
 		laddr:         utils.InterfaceAddress(utils.GetInterFace()),
 		Result:        Result,
 		hanPermission: checkPermission(),
-		Finish:        make(chan struct{}),
+		finish:        make(chan struct{}),
 		seq:           rand.Intn(65535),
 		aliveIP:       make([]string, 0),
 		maxCh:         make(chan struct{}, ThreadNum),
@@ -68,9 +66,6 @@ func NewScan(IpList []string, PortList []int, ThreadNum int, Timeout time.Durati
 func (scan *Scan) Start() {
 	if scan.hanPermission {
 		fmt.Printf("[*] Start SYN scan\n")
-		fd, _ := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
-		scan.Fd = fd
-		syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_HDRINCL, 1)
 		go scan.scan_syn()
 	} else {
 		fmt.Printf("[*] Start CONNECT scan\n")
@@ -90,7 +85,7 @@ func (scan *Scan) scan_syn() {
 			select {
 			case <-timer.C:
 				return
-			case <-scan.StartScan:
+			case <-scan.start:
 				fmt.Println("[*] Start scan")
 				scan.Total = len(scan.aliveIP) * len(scan.PortList)
 				for i := 0; i < len(scan.aliveIP); i++ {
@@ -123,7 +118,7 @@ func (scan *Scan) scan_syn() {
 					fmt.Printf("[*]scan total %d,get %d\n", scan.Total, scan.ReturnNumber)
 					if scan.ReturnNumber >= scan.Total {
 						go func() {
-							scan.Finish <- struct{}{}
+							scan.finish <- struct{}{}
 						}()
 						scan.CloseListen()
 						return
@@ -149,7 +144,7 @@ func (scan *Scan) scan_connect() {
 	}
 	wg.Wait()
 	go func() {
-		scan.Finish <- struct{}{}
+		scan.finish <- struct{}{}
 	}()
 }
 func (scan *Scan) scan_connect_port(ip string, port int) {
@@ -218,7 +213,7 @@ func (scan *Scan) Close() {
 	close(scan.Result)
 }
 func (scan *Scan) Wait() {
-	<-scan.Finish
+	<-scan.finish
 }
 func (scan *Scan) CloseListen() {
 	scan.closeListen <- struct{}{}
@@ -234,7 +229,7 @@ func (scan *Scan) alive() {
 		}(i, &wg)
 	}
 	wg.Wait()
-	scan.StartScan <- struct{}{}
+	scan.start <- struct{}{}
 }
 func (scan *Scan) alive_send(ip string) {
 	scan.maxCh <- struct{}{}
