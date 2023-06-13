@@ -115,7 +115,6 @@ func (scan *Scan) scan_syn() {
 							}
 						}
 					}()
-					fmt.Printf("[*]scan total %d,get %d\n", scan.Total, scan.ReturnNumber)
 					if scan.ReturnNumber >= scan.Total {
 						go func() {
 							scan.finish <- struct{}{}
@@ -238,7 +237,6 @@ func (scan *Scan) alive_send(ip string) {
 	}()
 	b := icmp_send(ip)
 	if b {
-		fmt.Printf("[*] scan success %s\n", ip)
 		scan.Lock.Lock()
 		scan.aliveIP = append(scan.aliveIP, ip)
 		scan.Lock.Unlock()
