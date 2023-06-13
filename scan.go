@@ -49,7 +49,7 @@ func NewScan(IpList []string, PortList []int, ThreadNum int, Timeout time.Durati
 		PortList:      PortList,
 		ThreadNum:     ThreadNum,
 		Timeout:       Timeout,
-		start:         make(chan struct{}, 1),
+		start:         make(chan struct{}, 10),
 		laddr:         utils.InterfaceAddress(utils.GetInterFace()),
 		Result:        Result,
 		hanPermission: checkPermission(),
@@ -84,15 +84,8 @@ func (scan *Scan) scan_syn() {
 		for {
 			select {
 			case <-timer.C:
+				scan.finish <- struct{}{}
 				return
-			case <-scan.start:
-				fmt.Println("[*] Start scan")
-				scan.Total = len(scan.aliveIP) * len(scan.PortList)
-				for i := 0; i < len(scan.aliveIP); i++ {
-					for j := 0; j < len(scan.PortList); j++ {
-						go scan.scan(scan.aliveIP[i], scan.PortList[j])
-					}
-				}
 			case <-scan.closeListen:
 				return
 			default:
@@ -107,25 +100,35 @@ func (scan *Scan) scan_syn() {
 				binary.Read(bytes.NewReader(buf[8:12]), binary.BigEndian, &ack)
 				if utils.InArray(addr.String(), scan.IpList) && utils.InArray[int](int(port), scan.PortList) && ack == uint32(scan.seq)+1 {
 					scan.ReturnNumber++
-					go func() {
-						if buf[13] == 0x12 {
-							scan.Result <- Result{
-								Ip:   addr.String(),
-								Port: int(port),
-							}
+					if buf[13] == 0x12 {
+						scan.Result <- Result{
+							Ip:   addr.String(),
+							Port: int(port),
 						}
-					}()
+					}
+					fmt.Printf("[*] get %d,total %d\n", scan.ReturnNumber, scan.Total)
 					if scan.ReturnNumber >= scan.Total {
 						go func() {
 							scan.finish <- struct{}{}
 						}()
-						scan.CloseListen()
 						return
 					}
 					timer.Reset(scan.Timeout)
 				}
 			}
 
+		}
+	}()
+	go func() {
+		<-scan.start
+		fmt.Println("[*] Start scan")
+		scan.Lock.Lock()
+		scan.Total = len(scan.aliveIP) * len(scan.PortList)
+		scan.Lock.Unlock()
+		for i := 0; i < len(scan.aliveIP); i++ {
+			for j := 0; j < len(scan.PortList); j++ {
+				go scan.scan(scan.aliveIP[i], scan.PortList[j])
+			}
 		}
 	}()
 	go scan.alive()
@@ -228,6 +231,7 @@ func (scan *Scan) alive() {
 		}(i, &wg)
 	}
 	wg.Wait()
+	fmt.Printf("[*] alive finish\n")
 	scan.start <- struct{}{}
 }
 func (scan *Scan) alive_send(ip string) {
